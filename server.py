@@ -6,26 +6,33 @@ import time
 import cv2
 import base64
 
+import camera_config
+
 # create a Socket.IO server
 sio = socketio.AsyncServer(
-    logger=True,
+    # logger=True,
     async_mode="asgi",
-    cors_allowed_origins=["http://localhost:1420"],
+    cors_allowed_origins=[
+        "http://localhost:1420",
+        "http://192.168.0.101:1420",
+        "http://10.18.121.97:1420",
+        "http://172.17.80.1:1420",
+    ],
 )
 app = socketio.ASGIApp(sio)
 
 
-@sio.on(event="send_feed", namespace="/feed")
-async def send_feed(sid, data):
-    await sio.emit(
-        "receive_feed",
-        data={
-            **data,
-            # "start_time": time.time(),
-        },
-        room="feed_receiver",
-        namespace="/feed",
-    )
+# @sio.on(event="send_feed", namespace="/feed")
+# async def send_feed(sid, data):
+#     await sio.emit(
+#         "receive_feed",
+#         data={
+#             **data,
+#             # "start_time": time.time(),
+#         },
+#         room="feed_receiver",
+#         namespace="/feed",
+#     )
 
 
 class FeedData:
@@ -76,13 +83,18 @@ async def receive_feed(sid, data):
     # await sio.enter_room(sid, "feed_receiver", namespace="/feed")
 
 
+@sio.on(event="join_feed", namespace="/feed")
+async def join_feed(sid, index: int):
+    await sio.enter_room(sid, f"feed_receiver_{index}", namespace="/feed")
+
+
 @sio.on(event="leave_feed", namespace="/feed")
-async def leave_feed(sid, data):
-    await sio.leave_room(sid, "feed_receiver", namespace="/feed")
+async def leave_feed(sid, index):
+    await sio.leave_room(sid, f"feed_receiver_{index}", namespace="/feed")
 
 
 @sio.event(namespace="/feed")
-def connect(sid, environ, auth):
+async def connect(sid, environ, auth):
     pass
 
 
@@ -93,17 +105,70 @@ def disconnect(sid):
             data.cap.release()
 
 
+def get_transmit_permission(camera_index):
+    if "/feed" not in sio.manager.rooms:
+        return False
+
+    feed_rooms = sio.manager.rooms["/feed"]
+    if f"feed_receiver_{camera_index}" not in feed_rooms:
+        return False
+
+    return True
+
+
+async def background_task(camera_index: int):
+    cap = cv2.VideoCapture(camera_index)
+
+    while cap.isOpened():
+        if not get_transmit_permission(camera_index):
+            await asyncio.sleep(0.005)
+            continue
+
+        print(f"camera_index: {camera_index}")
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        sus, buffer = cv2.imencode(".jpg", frame)
+
+        if not sus:
+            continue
+
+        frame_data = base64.b64encode(buffer).decode("utf-8")
+        start_time = time.time()
+
+        await sio.emit(
+            f"send_feed_{camera_index}",
+            namespace="/feed",
+            room=f"feed_receiver_{camera_index}",
+            data={
+                "frame_data": frame_data,
+                "start_time": start_time,
+            },
+        )
+        await asyncio.sleep(0.005)
+
+
 async def main():
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",
+        host="0.0.0.0",
         port=5000,
         log_level="info",
         reload=True,
         # loop=loop,
     )
     server = uvicorn.Server(config)
-    await server.serve()
+    # await server.serve()
+    await asyncio.gather(
+        *[
+            server.serve(),
+            *[
+                background_task(camera_index)
+                for camera_index in camera_config.CAMERA_INDICES
+            ],
+        ]
+    )
 
 
 if __name__ == "__main__":
