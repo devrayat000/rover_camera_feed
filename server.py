@@ -15,24 +15,14 @@ sio = socketio.AsyncServer(
     cors_allowed_origins=[
         "http://localhost:1420",
         "http://192.168.0.101:1420",
+        "http://192.168.0.102:1420",
+        "http://192.168.0.105:1420",
         "http://10.18.121.97:1420",
         "http://172.17.80.1:1420",
+        # "*",
     ],
 )
 app = socketio.ASGIApp(sio)
-
-
-# @sio.on(event="send_feed", namespace="/feed")
-# async def send_feed(sid, data):
-#     await sio.emit(
-#         "receive_feed",
-#         data={
-#             **data,
-#             # "start_time": time.time(),
-#         },
-#         room="feed_receiver",
-#         namespace="/feed",
-#     )
 
 
 class FeedData:
@@ -40,47 +30,6 @@ class FeedData:
         self.sid = sid
         self.index = index
         self.cap = cap
-
-
-caps: list[FeedData] = []
-
-
-@sio.on(event="receive_feed", namespace="/feed")
-async def receive_feed(sid, data):
-    print("sid", sid)
-    index = int(data["index"])
-    cap_filter = list(filter(lambda x: x.index == index, caps))
-
-    if len(cap_filter) <= 0:
-        cap = cv2.VideoCapture(0)
-        caps.append(FeedData(sid, index, cap))
-    else:
-        cap = cap_filter[0].cap
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        sus, buffer = cv2.imencode(".jpg", frame)
-
-        if not sus:
-            continue
-
-        frame_data = base64.b64encode(buffer).decode("utf-8")
-        start_time = time.time()
-
-        await sio.emit(
-            "send_feed",
-            namespace="/feed",
-            data={
-                "frame_data": frame_data,
-                "start_time": start_time,
-            },
-        )
-        await asyncio.sleep(0.001)
-
-    # await sio.enter_room(sid, "feed_receiver", namespace="/feed")
 
 
 @sio.on(event="join_feed", namespace="/feed")
@@ -100,9 +49,7 @@ async def connect(sid, environ, auth):
 
 @sio.event(namespace="/feed")
 def disconnect(sid):
-    for data in caps:
-        if data.sid == sid:
-            data.cap.release()
+    pass
 
 
 def get_transmit_permission(camera_index):
@@ -121,32 +68,30 @@ async def background_task(camera_index: int):
 
     while cap.isOpened():
         if not get_transmit_permission(camera_index):
-            await asyncio.sleep(0.005)
+            await asyncio.sleep(0.0001)
             continue
 
-        print(f"camera_index: {camera_index}")
+        # print(f"camera_index: {camera_index}")
         ret, frame = cap.read()
         if not ret:
             break
 
-        sus, buffer = cv2.imencode(".jpg", frame)
+        frame = cv2.resize(frame, (400, 300))
+        sus, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
 
         if not sus:
             continue
 
-        frame_data = base64.b64encode(buffer).decode("utf-8")
+        # frame_data = base64.b64encode(buffer).decode("utf-8")
         start_time = time.time()
 
         await sio.emit(
             f"send_feed_{camera_index}",
             namespace="/feed",
             room=f"feed_receiver_{camera_index}",
-            data={
-                "frame_data": frame_data,
-                "start_time": start_time,
-            },
+            data=(buffer.tobytes(), start_time),
         )
-        await asyncio.sleep(0.005)
+        await asyncio.sleep(0.0001)
 
 
 async def main():
@@ -155,11 +100,13 @@ async def main():
         host="0.0.0.0",
         port=5000,
         log_level="info",
-        reload=True,
-        # loop=loop,
+        # reload=True,
+        loop="asyncio",
+        workers=4,
     )
     server = uvicorn.Server(config)
     # await server.serve()
+
     await asyncio.gather(
         *[
             server.serve(),
