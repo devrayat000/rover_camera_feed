@@ -58,7 +58,7 @@ def get_transmit_permission(camera_index):
 
 
 async def background_task(camera_index: int):
-    cap = cv2.VideoCapture(camera_index % 2)
+    cap = cv2.VideoCapture(camera_index)
 
     while cap.isOpened():
         if not get_transmit_permission(camera_index):
@@ -87,6 +87,11 @@ async def background_task(camera_index: int):
         )
         await asyncio.sleep(0.0001)
 
+    print(f"camera_index: {camera_index} released")
+    cap.release()
+    await asyncio.sleep(1)
+    await background_task(camera_index)
+
 
 async def main():
     config = uvicorn.Config(
@@ -94,10 +99,10 @@ async def main():
         host="0.0.0.0",
         port=5000,
         log_level="info",
-        reload=True,
+        # reload=True,
         loop="asyncio",
         workers=5,
-        reload_includes=["*.py"],
+        # reload_includes=["*.py"],
     )
     server = uvicorn.Server(config)
     # await server.serve()
@@ -111,31 +116,6 @@ async def main():
             ],
         ]
     )
-
-
-async def run_server():
-    loop = asyncio.get_event_loop()
-    asyncio.set_event_loop(loop)
-
-    config = uvicorn.Config(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        log_level="info",
-        reload=True,
-        loop="asyncio",
-        workers=5,
-        reload_includes=["*.py"],
-    )
-    server = uvicorn.Server(config)
-
-    loop.run_until_complete(server.serve())
-
-
-async def alt_main():
-    with ProcessPoolExecutor(max_workers=5) as executor:
-        asyncio.to_thread
-        await asyncio.get_event_loop().run_in_executor(executor, main)
 
 
 if __name__ == "__main__":
