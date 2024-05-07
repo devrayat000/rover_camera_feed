@@ -1,7 +1,7 @@
 import socketio.server
 import asyncio
 import uvicorn
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import time
 import cv2
 import base64
@@ -58,20 +58,20 @@ def get_transmit_permission(camera_index):
 
 
 async def background_task(camera_index: int):
-    cap = cv2.VideoCapture(camera_index % 2)
+    cap = cv2.VideoCapture(camera_index)
 
     while cap.isOpened():
+        # print(f"camera_index: {camera_index}")
         if not get_transmit_permission(camera_index):
             await asyncio.sleep(0.0001)
             continue
 
-        # print(f"camera_index: {camera_index}")
         ret, frame = cap.read()
         if not ret:
             break
 
         frame = cv2.resize(frame, (400, 300))
-        sus, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        sus, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 40])
 
         if not sus:
             continue
@@ -88,54 +88,36 @@ async def background_task(camera_index: int):
         await asyncio.sleep(0.0001)
 
 
-async def main():
-    config = uvicorn.Config(
-        app,
-        host="0.0.0.0",
-        port=5000,
-        log_level="info",
-        reload=True,
-        loop="asyncio",
-        workers=5,
-        reload_includes=["*.py"],
-    )
-    server = uvicorn.Server(config)
-    # await server.serve()
-
-    await asyncio.gather(
-        *[
-            server.serve(),
-            *[
-                background_task(camera_index)
-                for camera_index in camera_config.CAMERA_INDICES
-            ],
-        ]
-    )
-
-
-async def run_server():
+def run_server(index: int):
     loop = asyncio.get_event_loop()
     asyncio.set_event_loop(loop)
 
     config = uvicorn.Config(
         app,
         host="0.0.0.0",
-        port=5000,
+        port=5000 + index,
         log_level="info",
-        reload=True,
+        # reload=True,
         loop="asyncio",
         workers=5,
-        reload_includes=["*.py"],
+        # reload_includes=["*.py"],
     )
     server = uvicorn.Server(config)
 
-    loop.run_until_complete(server.serve())
+    tasks = asyncio.gather(
+        *[
+            server.serve(),
+            background_task(index),
+        ]
+    )
+
+    loop.run_until_complete(tasks)
 
 
-async def alt_main():
+async def main():
     with ProcessPoolExecutor(max_workers=5) as executor:
-        asyncio.to_thread
-        await asyncio.get_event_loop().run_in_executor(executor, main)
+        for camera_index in camera_config.CAMERA_INDICES:
+            executor.submit(run_server, camera_index)
 
 
 if __name__ == "__main__":
