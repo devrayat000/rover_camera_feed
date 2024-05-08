@@ -188,9 +188,8 @@ async def look_for_camera_index():
         if len(diff) > 0:
             for new_cam in diff:
                 loop.create_task(background_task(new_cam))
-
                 # background_task(new_cam)
-                pass
+                # pass
             print("added cams", diff)
             cams.update(diff)
             await sio.emit(

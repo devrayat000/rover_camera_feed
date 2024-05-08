@@ -8,6 +8,10 @@ import base64
 
 import camera_config
 
+cams = set()
+camera_range = range(0, 3)
+# capture = cv2.VideoCapture()
+
 # create a Socket.IO server
 sio = socketio.AsyncServer(
     # logger=True,
@@ -116,8 +120,28 @@ def run_server(index: int):
 
 async def main():
     with ProcessPoolExecutor(max_workers=5) as executor:
-        for camera_index in camera_config.CAMERA_INDICES:
-            executor.submit(run_server, camera_index)
+        while True:
+            new_indices = camera_config.get_free_camera_indices(list(cams))
+            new_cams = set(new_indices)
+            diff = new_cams.difference(cams)
+
+            if len(diff) > 0:
+                print("added cams", diff)
+                for new_cam in diff:
+                    # asyncio.create_task(background_task(new_cam))
+                    executor.submit(run_server, new_cam)
+                cams.update(diff)
+                # await sio.emit(
+                #     "camera_change",
+                #     namespace="/feed",
+                #     data=list(cams),
+                #     skip_sid=True,
+                # )
+
+            print(list(cams), new_indices)
+            await asyncio.sleep(2)
+        # for camera_index in camera_config.CAMERA_INDICES:
+        #     executor.submit(run_server, camera_index)
 
 
 if __name__ == "__main__":
