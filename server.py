@@ -57,6 +57,7 @@ def get_transmit_permission(camera_index):
     return True
 
 
+# TODO: Implement error transmitting
 async def background_task(camera_index: int):
     cap = cv2.VideoCapture(camera_index)
 
